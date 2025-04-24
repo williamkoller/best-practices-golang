@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7.4.2
+    container_name: redis
+    hostname: ${REDIS_HOST}
+    ports:
+      - ${REDIS_PORT}:${REDIS_PORT}
+    networks:
+      device-net:
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    hostname: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASS}
+      MYSQL_DATABASE: ${DB_NAME}
+    ports:
+      - ${DB_PORT}:${DB_PORT}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+    networks:
+      device-net:
+        ipv4_address: 172.28.0.11
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      timeout: 10s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    env_file:
+      - .env
+    ports:
+      - ${PORT}:${PORT}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    links:
+      - mysql
+    networks:
+      device-net:
+        ipv4_address: 172.28.0.12
+
+  asynqmon:
+    image: hibiken/asynqmon
+    container_name: asynqmon
+    ports:
+      - ${ASYNQ_PORT}:${ASYNQ_PORT}
+    environment:
+      - REDIS_ADDR=redis:${REDIS_PORT}
+    depends_on:
+      - redis
+    networks:
+      device-net:
+        ipv4_address: 172.28.0.13
+
+volumes:
+  mysql_data:
+
+networks:
+  device-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
